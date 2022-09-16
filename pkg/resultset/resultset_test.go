@@ -19,6 +19,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/googlecloudplatform/pi-delivery/pkg/resultset"
 	"github.com/googlecloudplatform/pi-delivery/pkg/ycd"
 	"github.com/stretchr/testify/assert"
@@ -26,29 +27,40 @@ import (
 
 func TestResultSet_Sort(t *testing.T) {
 	t.Parallel()
-	set := resultset.ResultSet{
-		{
+	f := func(i int64) *ycd.YCDFile {
+		return &ycd.YCDFile{
 			Header: &ycd.Header{
-				BlockID: int64(2),
+				BlockID: i,
 			},
-		},
-		{
-			Header: &ycd.Header{
-				BlockID: int64(0),
-			},
-		},
-		{
-			Header: &ycd.Header{
-				BlockID: int64(1),
-			},
-		},
+		}
 	}
-
-	assert.Equal(t, 3, set.Len())
-	assert.True(t, set.Less(1, 0))
-	assert.False(t, set.Less(0, 1))
+	set := resultset.ResultSet{
+		f(2), f(0), f(1),
+	}
+	if got := set.Len(); got != 3 {
+		t.Errorf("Len(): want = 3, got = %d", got)
+	}
+	testCases := []struct {
+		i, j int
+		want bool
+	}{
+		{1, 0, true},
+		{0, 1, false},
+	}
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("Less %d %d", tc.i, tc.j), func(t *testing.T) {
+			if got := set.Less(tc.i, tc.j); got != tc.want {
+				t.Errorf("Less(%d, %d) = want (%v), got (%v)", tc.i, tc.j, tc.want, got)
+			}
+		})
+	}
 	sort.Sort(set)
-	assert.True(t, sort.IsSorted(set))
+	want := resultset.ResultSet{
+		f(0), f(1), f(2),
+	}
+	if diff := cmp.Diff(want, set); diff != "" {
+		t.Errorf("Set after Sort(): (-want, +got):\n%s", diff)
+	}
 }
 
 func TestResultSet_Decimal(t *testing.T) {

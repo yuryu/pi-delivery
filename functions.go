@@ -46,17 +46,19 @@ const (
 func init() {
 	functions.HTTP("Get", Get)
 	functions.HTTP("NotFound", NotFound)
-	if logger, err := zapdriver.NewProduction(); err != nil {
-		zap.S().Fatalw("zapdriver.NewProduction() failed", "error", err)
-	} else {
-		zap.ReplaceGlobals(logger)
+	logger, err := zapdriver.NewProduction()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "zapdriver.NewProduction() failed: %v", err)
+		os.Exit(1)
 	}
-	defer zap.S().Sync()
+	zap.ReplaceGlobals(logger)
+	defer logger.Sync()
+	log := logger.Sugar()
 
 	// Read configurations from env.
 	if s := os.Getenv(envMaxDigitsPerRequest); s != "" {
 		if i, err := strconv.Atoi(s); err != nil {
-			zap.S().Error("invalid env value", "name", envMaxDigitsPerRequest, "value", s)
+			log.Error("invalid env value", "name", envMaxDigitsPerRequest, "value", s)
 		} else {
 			maxDigitsPerRequest = i
 		}
@@ -64,37 +66,41 @@ func init() {
 	if s := os.Getenv(envBucketName); s != "" {
 		bucketName = s
 	}
-	zap.S().Info("Config",
+	log.Info("Config",
 		"maxDigitsPerRequest", maxDigitsPerRequest,
 		"bucketName", bucketName,
 	)
 }
 
-func getService(ctx context.Context) *service.Service {
+func getService(ctx context.Context, l *zap.Logger) *service.Service {
 	_servOnce.Do(func() {
-		_serv = service.NewService(ctx, zap.S(), bucketName)
+		serv, err := service.NewService(ctx, bucketName)
+		if err != nil {
+			l.Fatal("service.NewService() failed", zap.Error(err))
+		}
+		_serv = serv
 	})
 	return _serv
 }
 
-func namedLogger(l *zap.SugaredLogger, name string, req *http.Request) *zap.SugaredLogger {
+func namedLogger(l *zap.Logger, name string, req *http.Request) *zap.Logger {
 	return l.Named(name).
 		With(
 			zapdriver.HTTP(zapdriver.NewHTTP(req, nil)),
 		)
 }
 
-func writeError(l *zap.SugaredLogger, res http.ResponseWriter, code int, s string) {
-	l.Errorw(s, "code", code)
-	res.Header().Add("Content-Type", "text/plain")
+func writeError(l *zap.Logger, res http.ResponseWriter, code int, s string) {
+	l.Error(s, zap.Int("code", code))
+	res.Header().Add("Content-Type", "text/plain; charset=utf-8")
 	res.WriteHeader(code)
 	_, err := io.WriteString(res, s)
 	if err != nil {
-		l.Errorw("WriteString failed", "error", err)
+		l.Error("WriteString failed", zap.Error(err))
 	}
 }
 
-func getIntQueryParam(l *zap.SugaredLogger, q url.Values, name string, def int64) (int64, error) {
+func getIntQueryParam(l *zap.Logger, q url.Values, name string, def int64) (int64, error) {
 	// TODO(yuryu): Use Has() when go 1.17 is available on Functions.
 	p := q.Get(name)
 	if p == "" {
@@ -102,7 +108,7 @@ func getIntQueryParam(l *zap.SugaredLogger, q url.Values, name string, def int64
 	}
 	i, err := strconv.ParseInt(p, 10, 64)
 	if err != nil {
-		l.Errorw("ParseInt failed", "error", err, "param", name, "value", p)
+		l.Error("ParseInt failed", zap.Error(err), zap.String("param", name), zap.String("value", p))
 		return 0, fmt.Errorf("invalid request: %s", name)
 	}
 	return i, nil
@@ -117,15 +123,16 @@ type GetResponse struct {
 
 // Get is the entrypoint for the API.
 // It takes three parameters in the query string:
-//  - start (int64): the digit position to read from.
-//  - numberOfDigits(int64): number of digits to read.
-//  - radix (int): the radix of pi to read. 10 or 16. default 10.
+//   - start (int64): the digit position to read from.
+//   - numberOfDigits(int64): number of digits to read.
+//   - radix (int): the radix of pi to read. 10 or 16. default 10.
+//
 // It returns a JSON response as GetResponse.
 func Get(res http.ResponseWriter, req *http.Request) {
-	l := namedLogger(zap.S(), "Get", req)
+	l := namedLogger(zap.L(), "Get", req)
 	defer l.Sync()
 
-	l.Info("Get start")
+	l.Debug("Get start")
 	res.Header().Set("Access-Control-Allow-Origin", "*")
 
 	q := req.URL.Query()
@@ -171,9 +178,10 @@ func Get(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	unpacked, err := getService(req.Context()).
-		Get(req.Context(), l, set, start, numberOfDigits)
+	unpacked, err := getService(req.Context(), l).
+		Get(req.Context(), set, start, numberOfDigits)
 	if err != nil {
+		l.Error("Get() failed", zap.Error(err))
 		writeError(l, res, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
@@ -184,8 +192,7 @@ func Get(res http.ResponseWriter, req *http.Request) {
 		json.DisableHTMLEscape(),
 	)
 	if err != nil {
-		l.Errorw("json encode failed",
-			"error", err)
+		l.Error("json encode failed", zap.Error(err))
 	}
 }
 

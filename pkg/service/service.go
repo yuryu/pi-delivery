@@ -17,6 +17,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/googlecloudplatform/pi-delivery/pkg/cached"
@@ -24,33 +25,27 @@ import (
 	"github.com/googlecloudplatform/pi-delivery/pkg/obj/gcs"
 	"github.com/googlecloudplatform/pi-delivery/pkg/resultset"
 	"github.com/googlecloudplatform/pi-delivery/pkg/unpack"
-	"go.uber.org/zap"
 )
-
-var errInternal = errors.New("internal error")
 
 type Service struct {
 	storage obj.Client
 	bucket  obj.Bucket
 }
 
-func NewService(ctx context.Context, logger *zap.SugaredLogger, bucketName string) *Service {
+func NewService(ctx context.Context, bucketName string) (*Service, error) {
 	storageClient, err := gcs.NewClient(ctx)
 	if err != nil {
-		logger.Fatalw("Failed to create a new Storage client",
-			"error", err)
+		return nil, fmt.Errorf("storage NewClient() failed: %w", err)
 	}
 	return &Service{
 		storage: storageClient,
 		bucket:  storageClient.Bucket(bucketName),
-	}
+	}, nil
 }
 
 // Get returns n bytes of pi starting at start.
 // The first digit (position 0) is 3 before the decimal point.
-func (s *Service) Get(ctx context.Context, logger *zap.SugaredLogger, set resultset.ResultSet, start, n int64) ([]byte, error) {
-	logger = logger.With("start", start, "n", n)
-
+func (s *Service) Get(ctx context.Context, set resultset.ResultSet, start, n int64) ([]byte, error) {
 	if n == 0 {
 		return nil, nil
 	}
@@ -76,10 +71,7 @@ func (s *Service) Get(ctx context.Context, logger *zap.SugaredLogger, set result
 	read, err := reader.ReadAt(unpacked[off:], start)
 
 	if err != nil && !errors.Is(err, io.EOF) {
-		logger.Errorw("ReadAt returned error",
-			"error", err,
-		)
-		return nil, errInternal
+		return nil, fmt.Errorf("reader ReadAt(): %w", err)
 	}
 	if zero {
 		read++

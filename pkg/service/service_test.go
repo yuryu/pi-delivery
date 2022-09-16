@@ -19,19 +19,19 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/googlecloudplatform/pi-delivery/gen/index"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func TestService_SimpleGet(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	testCases := []struct {
 		radix    int
 		start, n int64
-		expected string
+		want     string
 	}{
 		{10, 0, 1, "3"},
 		{10, 1, 1, "1"},
@@ -43,10 +43,10 @@ func TestService_SimpleGet(t *testing.T) {
 		{16, 1, 50, "243f6a8885a308d313198a2e03707344a4093822299f31d008"},
 	}
 
-	l, _ := zap.NewDevelopment()
-	s := l.Sugar()
-	service := NewService(ctx, s, index.BucketName)
-	require.NotNil(t, service)
+	service, err := NewService(ctx, index.BucketName)
+	if err != nil {
+		t.Fatalf("service.NewService(): %v", err)
+	}
 
 	for _, tc := range testCases {
 		tc := tc
@@ -56,9 +56,12 @@ func TestService_SimpleGet(t *testing.T) {
 			if tc.radix == 16 {
 				set = index.Hexadecimal
 			}
-			res, err := service.Get(ctx, s, set, tc.start, tc.n)
-			if assert.NoError(t, err) && assert.NotNil(t, res) {
-				assert.Equal(t, []byte(tc.expected), res)
+			res, err := service.Get(ctx, set, tc.start, tc.n)
+			if err != nil {
+				t.Errorf("service.Get(): %v", err)
+			}
+			if diff := cmp.Diff([]byte(tc.want), res); diff != "" {
+				t.Errorf("service.Get() = (-want, got):\n%s", diff)
 			}
 		})
 	}

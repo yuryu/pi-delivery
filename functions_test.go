@@ -20,17 +20,25 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/goccy/go-json"
-	"github.com/stretchr/testify/assert"
+	"github.com/google/go-cmp/cmp"
+)
+
+const (
+	textPlain       = "text/plain; charset=utf-8"
+	applicationJson = "application/json"
+	contentType     = "Content-Type"
+	acAllowOrigin   = "Access-Control-Allow-Origin"
 )
 
 func TestRest_Get(t *testing.T) {
 	testCases := []struct {
 		radix    int
 		start, n int64
-		expected string
+		want     string
 	}{
 		{10, 0, 0, ""},
 		{10, 1, 0, ""},
@@ -66,13 +74,22 @@ func TestRest_Get(t *testing.T) {
 			Get(responseRecorder, request)
 
 			res := responseRecorder.Result()
-
-			assert.Equal(t, http.StatusOK, res.StatusCode)
-			assert.Equal(t, "application/json", res.Header.Get("Content-Type"))
-			assert.Equal(t, "*", res.Header.Get("Access-Control-Allow-Origin"))
-			actual := new(GetResponse)
-			assert.NoError(t, json.NewDecoder(res.Body).Decode(actual))
-			assert.Equal(t, tc.expected, actual.Content)
+			if res.StatusCode != http.StatusOK {
+				t.Errorf("Get(): StatusCode, want = %d, got = %d", http.StatusOK, res.StatusCode)
+			}
+			if got := res.Header.Get(contentType); got != applicationJson {
+				t.Errorf("Get(): %s, want = %s, got = %s", contentType, applicationJson, got)
+			}
+			if got := res.Header.Get(acAllowOrigin); got != "*" {
+				t.Errorf("Get(): %s, want = *, got = %s", acAllowOrigin, got)
+			}
+			got := &GetResponse{}
+			want := &GetResponse{Content: tc.want}
+			if err := json.NewDecoder(res.Body).Decode(got); err != nil {
+				t.Errorf("Get(): invalid json, error = %v", err)
+			} else if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("Get() = (-want, +got):\n%s", diff)
+			}
 		})
 	}
 }
@@ -109,13 +126,25 @@ func TestGet_BadRequests(t *testing.T) {
 			Get(responseRecorder, request)
 
 			res := responseRecorder.Result()
-			assert.Equal(t, http.StatusBadRequest, res.StatusCode)
-			assert.Equal(t, "text/plain", res.Header.Get("Content-Type"))
-			assert.Equal(t, "*", res.Header.Get("Access-Control-Allow-Origin"))
-			body, err := io.ReadAll(res.Body)
-			assert.NoError(t, err)
-			assert.Contains(t, string(body), tc.message)
-			assert.NotContains(t, string(body), "\"content\"")
+			if res.StatusCode != http.StatusBadRequest {
+				t.Errorf("Get(): StatusCode, want = %d, got = %d", http.StatusBadRequest, res.StatusCode)
+			}
+			if got := res.Header.Get(contentType); got != textPlain {
+				t.Errorf("Get(): %s, want = %s, got = %s", contentType, textPlain, got)
+			}
+			if got := res.Header.Get(acAllowOrigin); got != "*" {
+				t.Errorf("Get(): %s, want = *, got = %s", acAllowOrigin, got)
+			}
+			got, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Errorf("Failed to read response body: %v", err)
+			}
+			if !strings.Contains(string(got), tc.message) {
+				t.Errorf("Get() should contain %s, got:\n%s", tc.message, got)
+			}
+			if strings.Contains(string(got), "\"content\"") {
+				t.Errorf("Get() should not contain \"content\", got:\n%s", got)
+			}
 		})
 	}
 }
@@ -125,10 +154,18 @@ func TestRest_NotFound(t *testing.T) {
 	responseRecorder := httptest.NewRecorder()
 	NotFound(responseRecorder, request)
 	res := responseRecorder.Result()
-	assert.Equal(t, http.StatusNotFound, res.StatusCode)
-	assert.Equal(t, "text/plain; charset=utf-8", res.Header.Get("Content-Type"))
-	body, err := io.ReadAll(res.Body)
-	if assert.NoError(t, err) {
-		assert.Equal(t, "The requested url /NotFound was not found.\n", string(body))
+	if res.StatusCode != http.StatusNotFound {
+		t.Errorf("NotFound(): StatusCode, want = %d, got = %d", http.StatusNotFound, res.StatusCode)
+	}
+	if got := res.Header.Get(contentType); got != textPlain {
+		t.Errorf("NotFound(): %s, want = %s, got = %s", contentType, textPlain, got)
+	}
+	got, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Errorf("Failed to read response body: %v", err)
+	}
+	const want = "The requested url /NotFound was not found.\n"
+	if diff := cmp.Diff(want, string(got)); diff != "" {
+		t.Errorf("NotFound(): (-want, +got):\n%s", diff)
 	}
 }
