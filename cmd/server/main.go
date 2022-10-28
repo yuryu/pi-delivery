@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-contrib/cors"
+	"github.com/gin-contrib/gzip"
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -135,6 +136,7 @@ func main() {
 	r := setupRouter(log, service)
 	r.Use(gin.Recovery())
 	r.Use(ginzap.RecoveryWithZap(log, true))
+	r.Use(gzip.Gzip(gzip.DefaultCompression))
 
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", viper.GetInt("port")))
 	if err != nil {

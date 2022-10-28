@@ -28,6 +28,7 @@ require (
 	cloud.google.com/go/functions v1.3.0 // indirect
 	cloud.google.com/go/iam v0.4.0 // indirect
 	github.com/cloudevents/sdk-go/v2 v2.11.0 // indirect
+	github.com/gin-contrib/gzip v0.0.6 // indirect
 	github.com/googleapis/gax-go/v2 v2.5.1 // indirect
 	github.com/inconshreveable/mousetrap v1.0.1 // indirect
 	github.com/mattn/go-isatty v0.0.16 // indirect
